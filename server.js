@@ -64,6 +64,14 @@ io.on("connection", (socket) => {
     io.to(to).emit("signal", { from, data });
   });
 
+  socket.on("room-update-request", () => {
+    socket.emit("room-update", {
+      users: Array.from(users.entries()),
+      speaker,
+      queue,
+    });
+  });
+
   socket.on("disconnect", () => {
     users.delete(socket.id);
     if (speaker === socket.id) speaker = null;
