@@ -1,7 +1,6 @@
 const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
-const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
@@ -22,17 +21,19 @@ io.on("connection", (socket) => {
   }
 
   users.add(socket.id);
+
   io.emit("room-update", {
     users: Array.from(users),
     speaker,
-    queue,
+    queue
   });
 
-  // ✅ انتقال به بیرون
+  // WebRTC signal
   socket.on("signal", ({ to, from, data }) => {
     io.to(to).emit("signal", { from, data });
   });
 
+  // نوبت گرفتن
   socket.on("take-turn", () => {
     if (!queue.includes(socket.id) && socket.id !== speaker) {
       queue.push(socket.id);
@@ -40,8 +41,9 @@ io.on("connection", (socket) => {
     }
   });
 
+  // شروع صحبت
   socket.on("start-speaking", () => {
-    if (!speaker && queue[0] === socket.id) {
+    if (!speaker && queue.length && queue[0] === socket.id) {
       speaker = socket.id;
       queue.shift();
       io.emit("speaker-update", speaker);
@@ -49,6 +51,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  // پایان صحبت
   socket.on("stop-speaking", () => {
     if (speaker === socket.id) {
       speaker = null;
@@ -67,11 +70,12 @@ io.on("connection", (socket) => {
       queue
     });
 
+    io.emit("queue-update", queue);
     io.emit("speaker-update", speaker);
   });
 });
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
 });
