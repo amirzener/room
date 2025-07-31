@@ -4,31 +4,27 @@ const socketIo = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server, {
-  cors: { origin: "*" }
-});
+const io = socketIo(server, { cors: { origin: "*" } });
 
-let users = new Set();
+let users = new Map(); // socket.id -> name
 let speaker = null;
 let queue = [];
 
 io.on("connection", (socket) => {
-  console.log("New user:", socket.id);
+  console.log("New user connected:", socket.id);
 
   if (users.size >= 10) {
     socket.emit("room-full");
     return;
   }
 
-  users.add(socket.id);
-  io.emit("room-update", {
-    users: Array.from(users),
-    speaker,
-    queue
-  });
-
-  socket.on("signal", ({ to, from, data }) => {
-    io.to(to).emit("signal", { from, data });
+  socket.on("join", (name) => {
+    users.set(socket.id, name);
+    io.emit("room-update", {
+      users: Array.from(users.entries()), // [[id, name], ...]
+      speaker,
+      queue,
+    });
   });
 
   socket.on("take-turn", () => {
@@ -44,6 +40,11 @@ io.on("connection", (socket) => {
       queue.shift();
       io.emit("speaker-update", speaker);
       io.emit("queue-update", queue);
+      io.emit("room-update", {
+        users: Array.from(users.entries()),
+        speaker,
+        queue,
+      });
     }
   });
 
@@ -51,7 +52,16 @@ io.on("connection", (socket) => {
     if (speaker === socket.id) {
       speaker = null;
       io.emit("speaker-update", null);
+      io.emit("room-update", {
+        users: Array.from(users.entries()),
+        speaker,
+        queue,
+      });
     }
+  });
+
+  socket.on("signal", ({ to, from, data }) => {
+    io.to(to).emit("signal", { from, data });
   });
 
   socket.on("disconnect", () => {
@@ -60,16 +70,15 @@ io.on("connection", (socket) => {
     queue = queue.filter(id => id !== socket.id);
 
     io.emit("room-update", {
-      users: Array.from(users),
+      users: Array.from(users.entries()),
       speaker,
-      queue
+      queue,
     });
+
     io.emit("speaker-update", speaker);
     io.emit("queue-update", queue);
   });
 });
 
 const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
