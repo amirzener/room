@@ -28,6 +28,11 @@ io.on("connection", (socket) => {
     queue,
   });
 
+  // ✅ انتقال به بیرون
+  socket.on("signal", ({ to, from, data }) => {
+    io.to(to).emit("signal", { from, data });
+  });
+
   socket.on("take-turn", () => {
     if (!queue.includes(socket.id) && socket.id !== speaker) {
       queue.push(socket.id);
