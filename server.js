@@ -15,8 +15,8 @@ const io = socketIo(server, {
 });
 
 const MAX_USERS = 20;
-let users = new Map(); // socket.id → {name, joinTime, isAdmin}
-let pendingApprovals = new Map(); // socket.id → {name, timestamp}
+let users = new Map();
+let pendingApprovals = new Map();
 let speaker = null;
 let queue = [];
 let adminSocketId = null;
@@ -27,12 +27,11 @@ function getTime() {
 }
 
 io.on("connection", (socket) => {
-  console.log(`[${getTime()}] کاربر جدید متصل شد:`, socket.id);
+  console.log(`[${getTime()}] New connection:`, socket.id);
 
-  // ارسال وضعیت اتاق به کاربر جدید
   socket.emit("room-status", { 
     isActive: isRoomActive,
-    isAdminRequest: false // به صورت پیش فرض false است
+    isAdminRequest: false
   });
 
   if (users.size >= MAX_USERS) {
@@ -41,7 +40,6 @@ io.on("connection", (socket) => {
     return;
   }
 
-  // رویداد برای درخواست تایید ورود
   socket.on("request-approval", (name) => {
     if (!name || name.trim() === "") {
       socket.emit("approval-response", {
@@ -52,22 +50,19 @@ io.on("connection", (socket) => {
     }
 
     if (name.toUpperCase() === 'ALFA') {
-      // کاربر ALFA است
       adminSocketId = socket.id;
-      isRoomActive = true; // اتاق با ورود ALFA فعال می‌شود
+      isRoomActive = true;
       users.set(socket.id, {
         name: name,
         joinTime: new Date(),
         isAdmin: true
       });
       
-      // اطلاع به ALFA که مدیر است و اتاق فعال شده
       socket.emit("room-status", { 
         isActive: true,
         isAdminRequest: true
       });
       
-      // ارسال تمام درخواست‌های pending به ALFA
       if (pendingApprovals.size > 0) {
         const requests = Array.from(pendingApprovals.entries()).map(([id, data]) => ({
           id,
@@ -76,29 +71,25 @@ io.on("connection", (socket) => {
         socket.emit("pending-requests", requests);
       }
       
-      // ارسال لیست کاربران فعلی به ALFA
       updateAdminUserLists();
       
       socket.emit("approval-response", { 
         isApproved: true, 
         message: "شما به عنوان مدیر وارد شدید و اتاق فعال شد" 
       });
-      console.log(`[${getTime()}] مدیر ALFA وارد شد و اتاق فعال شد`);
+      console.log(`[${getTime()}] Admin ALFA joined and room activated`);
     } else {
-      // کاربر عادی است
       if (!isRoomActive) {
         socket.emit("room-inactive");
         socket.disconnect(true);
         return;
       }
       
-      // درخواست به حالت انتظار می‌رود
       pendingApprovals.set(socket.id, {
         name: name,
         timestamp: new Date()
       });
       
-      // اطلاع به ALFA در صورت وجود
       if (adminSocketId) {
         updateAdminPendingRequests();
       }
@@ -110,7 +101,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // رویدادهای مدیریتی فقط برای ALFA
   socket.on("approve-user", (userId) => {
     if (socket.id === adminSocketId && pendingApprovals.has(userId)) {
       const userData = pendingApprovals.get(userId);
@@ -122,13 +112,14 @@ io.on("connection", (socket) => {
         isAdmin: false
       });
       
-      io.to(userId).emit("approval-response", { isApproved: true });
+      io.to(userId).emit("approval-response", { 
+        isApproved: true,
+        message: "ورود شما تأیید شد"
+      });
       
-      // به روزرسانی لیست‌ها برای ALFA
       updateAdminUserLists();
       updateAdminPendingRequests();
       
-      // کاربر تایید شده می‌تواند به اتاق بپیوندد
       const otherUsers = Array.from(users.keys()).filter(id => id !== userId);
       io.to(userId).emit("all-users", otherUsers);
       socket.broadcast.emit("user-joined", userId);
@@ -145,7 +136,6 @@ io.on("connection", (socket) => {
       });
       io.to(userId).emit("kicked");
       io.sockets.sockets.get(userId)?.disconnect();
-      
       updateAdminPendingRequests();
     }
   });
@@ -167,7 +157,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // بقیه رویدادها فقط برای کاربران تایید شده
   socket.on("join", (name) => {
     if (!users.has(socket.id)) return;
     
@@ -211,8 +200,10 @@ io.on("connection", (socket) => {
     socket.to(to).emit("signal", { from, data });
   });
 
-  socket.on("room-update-request", () => {
-    broadcastRoomUpdate(socket);
+  socket.on("send-reaction", ({ userId, reactionType }) => {
+    if (users.has(socket.id) && users.has(userId)) {
+      io.emit("user-reaction", { userId, reactionType });
+    }
   });
 
   socket.on("disconnect", () => {
@@ -221,7 +212,6 @@ io.on("connection", (socket) => {
       isRoomActive = false;
       io.emit("room-inactive");
       
-      // قطع ارتباط تمام کاربران
       users.forEach((_, id) => {
         if (id !== socket.id) {
           io.to(id).emit("kicked");
@@ -248,13 +238,11 @@ io.on("connection", (socket) => {
       socket.broadcast.emit("user-left", socket.id);
       broadcastRoomUpdate();
       io.emit("queue-update");
-      
       updateAdminUserLists();
     }
   });
 });
 
-// توابع کمکی
 function updateAdminUserLists() {
   if (adminSocketId) {
     const currentUsers = Array.from(users.entries())
@@ -296,5 +284,5 @@ function broadcastRoomUpdate(socket = null) {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`[${getTime()}] سرور روی پورت ${PORT} اجرا شد`);
+  console.log(`[${getTime()}] Server running on port ${PORT}`);
 });
