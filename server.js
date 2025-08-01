@@ -38,18 +38,26 @@ io.on("connection", (socket) => {
     return;
   }
 
-  // دریافت اطلاعات کاربر
-  socket.on("join", (name) => {
-    users.set(socket.id, {
-      name: name || `کاربر ${socket.id.slice(0, 5)}`,
-      joinTime: new Date()
-    });
-
-    console.log(`[${getTime()}] کاربر "${name}" به اتاق پیوست`);
-
-    // ارسال اطلاعات به همه کاربران
-    broadcastRoomUpdate();
+ // دریافت اطلاعات کاربر
+socket.on("join", (name) => {
+  users.set(socket.id, {
+    name: name || `کاربر ${socket.id.slice(0, 5)}`,
+    joinTime: new Date()
   });
+
+  console.log(`[${getTime()}] کاربر "${name}" به اتاق پیوست`);
+
+  // ارسال اطلاعات به همه کاربران
+  broadcastRoomUpdate();
+
+  // ✅ ارسال لیست کاربران موجود به کاربر جدید
+  const otherUsers = Array.from(users.keys()).filter(id => id !== socket.id);
+  socket.emit("all-users", otherUsers);
+
+  // ✅ اعلام ورود کاربر جدید به دیگران
+  socket.broadcast.emit("user-joined", socket.id);
+});
+
 
   // درخواست نوبت
   socket.on("take-turn", () => {
