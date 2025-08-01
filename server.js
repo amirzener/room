@@ -30,13 +30,10 @@ io.on("connection", (socket) => {
   console.log(`[${getTime()}] کاربر جدید متصل شد:`, socket.id);
 
   // ارسال وضعیت اتاق به کاربر جدید
-  socket.emit("room-status", { isActive: isRoomActive });
-
-  if (!isRoomActive && adminSocketId === null) {
-    socket.emit("room-inactive");
-    socket.disconnect(true);
-    return;
-  }
+  socket.emit("room-status", { 
+    isActive: isRoomActive,
+    isAdminRequest: false // به صورت پیش فرض false است
+  });
 
   if (users.size >= MAX_USERS) {
     socket.emit("room-full");
@@ -57,11 +54,17 @@ io.on("connection", (socket) => {
     if (name.toUpperCase() === 'ALFA') {
       // کاربر ALFA است
       adminSocketId = socket.id;
-      isRoomActive = true;
+      isRoomActive = true; // اتاق با ورود ALFA فعال می‌شود
       users.set(socket.id, {
         name: name,
         joinTime: new Date(),
         isAdmin: true
+      });
+      
+      // اطلاع به ALFA که مدیر است و اتاق فعال شده
+      socket.emit("room-status", { 
+        isActive: true,
+        isAdminRequest: true
       });
       
       // ارسال تمام درخواست‌های pending به ALFA
@@ -78,17 +81,18 @@ io.on("connection", (socket) => {
       
       socket.emit("approval-response", { 
         isApproved: true, 
-        message: "شما به عنوان مدیر وارد شدید" 
+        message: "شما به عنوان مدیر وارد شدید و اتاق فعال شد" 
       });
-      console.log(`[${getTime()}] مدیر ALFA وارد شد`);
+      console.log(`[${getTime()}] مدیر ALFA وارد شد و اتاق فعال شد`);
     } else {
+      // کاربر عادی است
       if (!isRoomActive) {
         socket.emit("room-inactive");
         socket.disconnect(true);
         return;
       }
       
-      // کاربر عادی است - درخواست به حالت انتظار می‌رود
+      // درخواست به حالت انتظار می‌رود
       pendingApprovals.set(socket.id, {
         name: name,
         timestamp: new Date()
@@ -163,7 +167,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // رویدادهای عمومی برای کاربران تایید شده
+  // بقیه رویدادها فقط برای کاربران تایید شده
   socket.on("join", (name) => {
     if (!users.has(socket.id)) return;
     
