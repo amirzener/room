@@ -15,24 +15,16 @@ const io = socketIo(server, {
 });
 
 const MAX_USERS = 20;
-let users = new Map();
-let pendingApprovals = new Map();
+let users = new Map(); // socket.id → {name, joinTime}
 let speaker = null;
 let queue = [];
-let adminSocketId = null;
-let isRoomActive = false;
 
 function getTime() {
   return new Date().toLocaleTimeString('fa-IR');
 }
 
 io.on("connection", (socket) => {
-  console.log(`[${getTime()}] New connection:`, socket.id);
-
-  socket.emit("room-status", { 
-    isActive: isRoomActive,
-    isAdminRequest: false
-  });
+  console.log(`[${getTime()}] کاربر جدید متصل شد:`, socket.id);
 
   if (users.size >= MAX_USERS) {
     socket.emit("room-full");
@@ -40,135 +32,22 @@ io.on("connection", (socket) => {
     return;
   }
 
-  socket.on("request-approval", (name) => {
-    if (!name || name.trim() === "") {
-      socket.emit("approval-response", {
-        isApproved: false,
-        message: "نام نمی‌تواند خالی باشد"
-      });
-      return;
-    }
-
-    if (name.toUpperCase() === 'ALFA') {
-      adminSocketId = socket.id;
-      isRoomActive = true;
-      users.set(socket.id, {
-        name: name,
-        joinTime: new Date(),
-        isAdmin: true
-      });
-      
-      socket.emit("room-status", { 
-        isActive: true,
-        isAdminRequest: true
-      });
-      
-      if (pendingApprovals.size > 0) {
-        const requests = Array.from(pendingApprovals.entries()).map(([id, data]) => ({
-          id,
-          name: data.name
-        }));
-        socket.emit("pending-requests", requests);
-      }
-      
-      updateAdminUserLists();
-      
-      socket.emit("approval-response", { 
-        isApproved: true, 
-        message: "شما به عنوان مدیر وارد شدید و اتاق فعال شد" 
-      });
-      console.log(`[${getTime()}] Admin ALFA joined and room activated`);
-    } else {
-      if (!isRoomActive) {
-        socket.emit("room-inactive");
-        socket.disconnect(true);
-        return;
-      }
-      
-      pendingApprovals.set(socket.id, {
-        name: name,
-        timestamp: new Date()
-      });
-      
-      if (adminSocketId) {
-        updateAdminPendingRequests();
-      }
-      
-      socket.emit("approval-response", { 
-        isApproved: false, 
-        message: "درخواست شما برای ورود ارسال شد. منتظر تایید مدیر باشید." 
-      });
-    }
-  });
-
-  socket.on("approve-user", (userId) => {
-    if (socket.id === adminSocketId && pendingApprovals.has(userId)) {
-      const userData = pendingApprovals.get(userId);
-      pendingApprovals.delete(userId);
-      
-      users.set(userId, {
-        name: userData.name,
-        joinTime: new Date(),
-        isAdmin: false
-      });
-      
-      io.to(userId).emit("approval-response", { 
-        isApproved: true,
-        message: "ورود شما تأیید شد"
-      });
-      
-      updateAdminUserLists();
-      updateAdminPendingRequests();
-      
-      const otherUsers = Array.from(users.keys()).filter(id => id !== userId);
-      io.to(userId).emit("all-users", otherUsers);
-      socket.broadcast.emit("user-joined", userId);
-      broadcastRoomUpdate();
-    }
-  });
-
-  socket.on("reject-user", (userId) => {
-    if (socket.id === adminSocketId && pendingApprovals.has(userId)) {
-      pendingApprovals.delete(userId);
-      io.to(userId).emit("approval-response", { 
-        isApproved: false, 
-        message: "درخواست شما توسط مدیر رد شد" 
-      });
-      io.to(userId).emit("kicked");
-      io.sockets.sockets.get(userId)?.disconnect();
-      updateAdminPendingRequests();
-    }
-  });
-
-  socket.on("kick-user", (userId) => {
-    if (socket.id === adminSocketId && users.has(userId) && !users.get(userId).isAdmin) {
-      io.to(userId).emit("kicked");
-      users.delete(userId);
-      
-      if (speaker === userId) {
-        speaker = null;
-        io.emit("speaker-update", null);
-      }
-      queue = queue.filter(id => id !== userId);
-      
-      updateAdminUserLists();
-      io.sockets.sockets.get(userId)?.disconnect();
-      broadcastRoomUpdate();
-    }
-  });
-
   socket.on("join", (name) => {
-    if (!users.has(socket.id)) return;
-    
+    users.set(socket.id, {
+      name: name || `کاربر ${socket.id.slice(0, 5)}`,
+      joinTime: new Date()
+    });
+
+    console.log(`[${getTime()}] کاربر "${name}" به اتاق پیوست`);
+
     const otherUsers = Array.from(users.keys()).filter(id => id !== socket.id);
     socket.emit("all-users", otherUsers);
     socket.broadcast.emit("user-joined", socket.id);
+
     broadcastRoomUpdate();
   });
 
   socket.on("take-turn", () => {
-    if (!users.has(socket.id)) return;
-    
     if (!queue.includes(socket.id) && socket.id !== speaker) {
       queue.push(socket.id);
       io.emit("queue-update");
@@ -177,8 +56,6 @@ io.on("connection", (socket) => {
   });
 
   socket.on("start-speaking", () => {
-    if (!users.has(socket.id)) return;
-    
     if (!speaker && queue[0] === socket.id) {
       speaker = socket.id;
       queue.shift();
@@ -200,78 +77,28 @@ io.on("connection", (socket) => {
     socket.to(to).emit("signal", { from, data });
   });
 
-  socket.on("send-reaction", ({ userId, reactionType }) => {
-    if (users.has(socket.id) && users.has(userId)) {
-      io.emit("user-reaction", { userId, reactionType });
-    }
+  socket.on("room-update-request", () => {
+    broadcastRoomUpdate(socket);
   });
 
   socket.on("disconnect", () => {
-    if (socket.id === adminSocketId) {
-      adminSocketId = null;
-      isRoomActive = false;
-      io.emit("room-inactive");
-      
-      users.forEach((_, id) => {
-        if (id !== socket.id) {
-          io.to(id).emit("kicked");
-          io.sockets.sockets.get(id)?.disconnect();
-        }
-      });
-      users.clear();
-      pendingApprovals.clear();
-      return;
+    users.delete(socket.id);
+    if (speaker === socket.id) {
+      speaker = null;
+      io.emit("speaker-update", null);
     }
-    
-    if (pendingApprovals.has(socket.id)) {
-      pendingApprovals.delete(socket.id);
-      updateAdminPendingRequests();
-    }
-    
-    if (users.has(socket.id)) {
-      users.delete(socket.id);
-      if (speaker === socket.id) {
-        speaker = null;
-        io.emit("speaker-update", null);
-      }
-      queue = queue.filter(id => id !== socket.id);
-      socket.broadcast.emit("user-left", socket.id);
-      broadcastRoomUpdate();
-      io.emit("queue-update");
-      updateAdminUserLists();
-    }
+    queue = queue.filter(id => id !== socket.id);
+    socket.broadcast.emit("user-left", socket.id);
+    broadcastRoomUpdate();
+    io.emit("queue-update");
   });
 });
 
-function updateAdminUserLists() {
-  if (adminSocketId) {
-    const currentUsers = Array.from(users.entries())
-      .filter(([_, user]) => !user.isAdmin)
-      .map(([id, data]) => ({
-        id,
-        name: data.name
-      }));
-    io.to(adminSocketId).emit("current-users", currentUsers);
-  }
-}
-
-function updateAdminPendingRequests() {
-  if (adminSocketId) {
-    const requests = Array.from(pendingApprovals.entries()).map(([id, data]) => ({
-      id,
-      name: data.name
-    }));
-    io.to(adminSocketId).emit("pending-requests", requests);
-  }
-}
-
 function broadcastRoomUpdate(socket = null) {
   const roomData = {
-    users: Array.from(users.entries())
-      .filter(([_, user]) => !user.isAdmin)
-      .map(([id, data]) => [id, data.name]),
+    users: Array.from(users.entries()).map(([id, data]) => [id, data.name]),
     speaker,
-    queue: queue.filter(id => users.has(id) && !users.get(id).isAdmin),
+    queue,
     timestamp: new Date().toISOString()
   };
 
@@ -284,5 +111,5 @@ function broadcastRoomUpdate(socket = null) {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`[${getTime()}] Server running on port ${PORT}`);
+  console.log(`[${getTime()}] سرور روی پورت ${PORT} اجرا شد`);
 });
