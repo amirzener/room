@@ -15,7 +15,7 @@ const io = socketIo(server, {
 });
 
 const MAX_USERS = 20;
-let users = new Map(); // socket.id → {name, joinTime, isMuted, isDeafened}
+let users = new Map(); // {socket.id: {name, joinTime, isMuted, isDeafened}}
 let speaker = null;
 let queue = [];
 
@@ -33,6 +33,10 @@ function broadcastRoomUpdate() {
   io.emit("room-update", roomData);
 }
 
+function removeFromQueue(userId) {
+  queue = queue.filter(id => id !== userId);
+}
+
 io.on("connection", (socket) => {
   console.log(`[${getTime()}] کاربر جدید متصل شد:`, socket.id);
 
@@ -43,6 +47,9 @@ io.on("connection", (socket) => {
   }
 
   socket.on("join", (name) => {
+    // حذف کاربر از صف اگر قبلاً وجود داشت
+    removeFromQueue(socket.id);
+    
     users.set(socket.id, {
       name: name || `کاربر ${socket.id.slice(0, 5)}`,
       joinTime: new Date(),
@@ -64,16 +71,13 @@ io.on("connection", (socket) => {
       queue.push(socket.id);
       broadcastRoomUpdate();
       console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} درخواست نوبت داد`);
-      
-      // اگر کاربر اولین نفر در صف است، اجازه صحبت بده
-      if (queue.length === 1) {
-        socket.emit("can-start-speaking");
-      }
     }
   });
 
   socket.on("start-speaking", () => {
     const userData = users.get(socket.id);
+    if (!userData) return;
+
     if ((!speaker && queue[0] === socket.id && !userData.isMuted) || 
         (userData.name.toUpperCase() === 'ALFA' && !userData.isMuted)) {
       speaker = socket.id;
@@ -97,7 +101,7 @@ io.on("connection", (socket) => {
     const adminData = users.get(socket.id);
     const targetUserData = users.get(targetUserId);
     
-    if (adminData && adminData.name.toUpperCase() === 'ALFA' && targetUserData) {
+    if (adminData?.name.toUpperCase() === 'ALFA' && targetUserData) {
       targetUserData.isMuted = !targetUserData.isMuted;
       
       if (targetUserData.isMuted && speaker === targetUserId) {
@@ -114,7 +118,7 @@ io.on("connection", (socket) => {
     const adminData = users.get(socket.id);
     const targetUserData = users.get(targetUserId);
     
-    if (adminData && adminData.name.toUpperCase() === 'ALFA' && targetUserData) {
+    if (adminData?.name.toUpperCase() === 'ALFA' && targetUserData) {
       targetUserData.isDeafened = !targetUserData.isDeafened;
       broadcastRoomUpdate();
       console.log(`[${getTime()}] ادمین ${adminData.name} صداهای کاربر ${targetUserData.name} را ${targetUserData.isDeafened ? 'قطع' : 'وصل'} کرد`);
@@ -123,7 +127,7 @@ io.on("connection", (socket) => {
 
   socket.on("admin-end-speaking", () => {
     const adminData = users.get(socket.id);
-    if (adminData && adminData.name.toUpperCase() === 'ALFA' && speaker) {
+    if (adminData?.name.toUpperCase() === 'ALFA' && speaker) {
       const speakerId = speaker;
       speaker = null;
       io.to(speakerId).emit("force-stop-speaking");
@@ -134,7 +138,7 @@ io.on("connection", (socket) => {
 
   socket.on("admin-unmute-all", () => {
     const adminData = users.get(socket.id);
-    if (adminData && adminData.name.toUpperCase() === 'ALFA') {
+    if (adminData?.name.toUpperCase() === 'ALFA') {
       users.forEach(user => {
         user.isMuted = false;
       });
@@ -144,7 +148,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("signal", ({ to, from, data }) => {
-    socket.to(to).emit("signal", { from, data });
+    if (users.has(to) && users.has(from)) {
+      socket.to(to).emit("signal", { from, data });
+    }
   });
 
   socket.on("send-reaction", ({ userId, reaction }) => {
@@ -155,15 +161,18 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    const userName = users.get(socket.id)?.name || socket.id;
+    const userData = users.get(socket.id);
+    if (!userData) return;
+
+    const userName = userData.name;
     users.delete(socket.id);
+    removeFromQueue(socket.id);
     
     if (speaker === socket.id) {
       speaker = null;
       console.log(`[${getTime()}] کاربر ${userName} در حال صحبت بود و قطع شد`);
     }
     
-    queue = queue.filter(id => id !== socket.id);
     socket.broadcast.emit("user-left", socket.id);
     broadcastRoomUpdate();
     console.log(`[${getTime()}] کاربر ${userName} از اتاق خارج شد`);
