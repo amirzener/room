@@ -15,7 +15,7 @@ const io = socketIo(server, {
 });
 
 const MAX_USERS = 20;
-let users = new Map(); // socket.id → {name, joinTime}
+let users = new Map(); // socket.id → {name, joinTime, isMuted, isDeafened}
 let speaker = null;
 let queue = [];
 
@@ -35,7 +35,9 @@ io.on("connection", (socket) => {
   socket.on("join", (name) => {
     users.set(socket.id, {
       name: name || `کاربر ${socket.id.slice(0, 5)}`,
-      joinTime: new Date()
+      joinTime: new Date(),
+      isMuted: false,
+      isDeafened: false
     });
 
     console.log(`[${getTime()}] کاربر "${name}" به اتاق پیوست`);
@@ -56,13 +58,15 @@ io.on("connection", (socket) => {
   });
 
   socket.on("start-speaking", () => {
-    if ((!speaker && queue[0] === socket.id) || users.get(socket.id).name.toUpperCase() === 'ALFA') {
+    const userData = users.get(socket.id);
+    if ((!speaker && queue[0] === socket.id && !userData.isMuted) || 
+        (userData.name.toUpperCase() === 'ALFA' && !userData.isMuted)) {
       speaker = socket.id;
       if (queue[0] === socket.id) {
         queue.shift();
       }
       broadcastRoomUpdate();
-      console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} شروع به صحبت کرد`);
+      console.log(`[${getTime()}] کاربر ${userData.name} شروع به صحبت کرد`);
     }
   });
 
@@ -71,6 +75,46 @@ io.on("connection", (socket) => {
       speaker = null;
       broadcastRoomUpdate();
       console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} صحبت را پایان داد`);
+    }
+  });
+
+  socket.on("admin-mute-user", (targetUserId) => {
+    const adminData = users.get(socket.id);
+    const targetUserData = users.get(targetUserId);
+    
+    if (adminData && adminData.name.toUpperCase() === 'ALFA' && targetUserData) {
+      targetUserData.isMuted = !targetUserData.isMuted;
+      
+      // اگر کاربر در حال صحبت بود و میکروفنش قطع شد، صحبتش را پایان بده
+      if (targetUserData.isMuted && speaker === targetUserId) {
+        speaker = null;
+        io.to(targetUserId).emit("force-stop-speaking");
+      }
+      
+      broadcastRoomUpdate();
+      console.log(`[${getTime()}] ادمین ${adminData.name} میکروفون کاربر ${targetUserData.name} را ${targetUserData.isMuted ? 'قطع' : 'وصل'} کرد`);
+    }
+  });
+
+  socket.on("admin-deafen-user", (targetUserId) => {
+    const adminData = users.get(socket.id);
+    const targetUserData = users.get(targetUserId);
+    
+    if (adminData && adminData.name.toUpperCase() === 'ALFA' && targetUserData) {
+      targetUserData.isDeafened = !targetUserData.isDeafened;
+      broadcastRoomUpdate();
+      console.log(`[${getTime()}] ادمین ${adminData.name} صداهای کاربر ${targetUserData.name} را ${targetUserData.isDeafened ? 'قطع' : 'وصل'} کرد`);
+    }
+  });
+
+  socket.on("admin-end-speaking", () => {
+    const adminData = users.get(socket.id);
+    if (adminData && adminData.name.toUpperCase() === 'ALFA' && speaker) {
+      const speakerId = speaker;
+      speaker = null;
+      io.to(speakerId).emit("force-stop-speaking");
+      broadcastRoomUpdate();
+      console.log(`[${getTime()}] ادمین ${adminData.name} صحبت کاربر ${users.get(speakerId).name} را پایان داد`);
     }
   });
 
@@ -101,7 +145,7 @@ io.on("connection", (socket) => {
 
 function broadcastRoomUpdate() {
   const roomData = {
-    users: Array.from(users.entries()).map(([id, data]) => [id, data.name]),
+    users: Array.from(users.entries()).map(([id, data]) => [id, data.name, data.isMuted, data.isDeafened]),
     speaker,
     queue,
     timestamp: new Date().toISOString()
