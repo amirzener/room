@@ -88,7 +88,7 @@ io.on("connection", (socket) => {
     broadcastRoomUpdate();
     console.log(`[${getTime()}] کاربر ${userData.name} شروع به صحبت کرد`);
   }
-});
+
     if ((!speaker && queue[0] === socket.id && !userData.isMuted) || 
         (userData.name.toUpperCase() === 'ALFA' && !userData.isMuted)) {
       speaker = socket.id;
