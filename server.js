@@ -23,6 +23,16 @@ function getTime() {
   return new Date().toLocaleTimeString('fa-IR');
 }
 
+function broadcastRoomUpdate() {
+  const roomData = {
+    users: Array.from(users.entries()).map(([id, data]) => [id, data.name, data.isMuted, data.isDeafened]),
+    speaker,
+    queue,
+    timestamp: new Date().toISOString()
+  };
+  io.emit("room-update", roomData);
+}
+
 io.on("connection", (socket) => {
   console.log(`[${getTime()}] کاربر جدید متصل شد:`, socket.id);
 
@@ -54,6 +64,11 @@ io.on("connection", (socket) => {
       queue.push(socket.id);
       broadcastRoomUpdate();
       console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} درخواست نوبت داد`);
+      
+      // اگر کاربر اولین نفر در صف است، اجازه صحبت بده
+      if (queue.length === 1) {
+        socket.emit("can-start-speaking");
+      }
     }
   });
 
@@ -85,7 +100,6 @@ io.on("connection", (socket) => {
     if (adminData && adminData.name.toUpperCase() === 'ALFA' && targetUserData) {
       targetUserData.isMuted = !targetUserData.isMuted;
       
-      // اگر کاربر در حال صحبت بود و میکروفنش قطع شد، صحبتش را پایان بده
       if (targetUserData.isMuted && speaker === targetUserId) {
         speaker = null;
         io.to(targetUserId).emit("force-stop-speaking");
@@ -118,13 +132,26 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("admin-unmute-all", () => {
+    const adminData = users.get(socket.id);
+    if (adminData && adminData.name.toUpperCase() === 'ALFA') {
+      users.forEach(user => {
+        user.isMuted = false;
+      });
+      broadcastRoomUpdate();
+      console.log(`[${getTime()}] ادمین ${adminData.name} صدای همه کاربران را وصل کرد`);
+    }
+  });
+
   socket.on("signal", ({ to, from, data }) => {
     socket.to(to).emit("signal", { from, data });
   });
 
   socket.on("send-reaction", ({ userId, reaction }) => {
-    io.emit("user-reaction", { userId, reaction });
-    console.log(`[${getTime()}] کاربر ${users.get(userId).name} واکنش ${reaction} دریافت کرد`);
+    if (users.has(userId)) {
+      io.emit("user-reaction", { userId, reaction });
+      console.log(`[${getTime()}] کاربر ${users.get(userId).name} واکنش ${reaction} دریافت کرد`);
+    }
   });
 
   socket.on("disconnect", () => {
@@ -142,16 +169,6 @@ io.on("connection", (socket) => {
     console.log(`[${getTime()}] کاربر ${userName} از اتاق خارج شد`);
   });
 });
-
-function broadcastRoomUpdate() {
-  const roomData = {
-    users: Array.from(users.entries()).map(([id, data]) => [id, data.name, data.isMuted, data.isDeafened]),
-    speaker,
-    queue,
-    timestamp: new Date().toISOString()
-  };
-  io.emit("room-update", roomData);
-}
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
