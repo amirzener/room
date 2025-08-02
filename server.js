@@ -77,7 +77,18 @@ io.on("connection", (socket) => {
   socket.on("start-speaking", () => {
     const userData = users.get(socket.id);
     if (!userData) return;
-
+    
+    if ((!speaker && queue[0] === socket.id && !userData.isMuted) || 
+      (userData.name.toUpperCase() === 'ALFA' && !userData.isMuted) ||
+      (userData.name === '1' && !userData.isMuted)) {
+    speaker = socket.id;
+    if (queue[0] === socket.id) {
+      queue.shift();
+    }
+    broadcastRoomUpdate();
+    console.log(`[${getTime()}] کاربر ${userData.name} شروع به صحبت کرد`);
+  }
+});
     if ((!speaker && queue[0] === socket.id && !userData.isMuted) || 
         (userData.name.toUpperCase() === 'ALFA' && !userData.isMuted)) {
       speaker = socket.id;
