@@ -79,7 +79,7 @@ io.on("connection", (socket) => {
     if (!userData) return;
     if ((!speaker && queue[0] === socket.id && !userData.isMuted) || 
       (userData.name.toUpperCase() === 'ALFA' && !userData.isMuted) ||
-      (userData.name === '1' && !userData.isMuted)) {
+      (userData.name === '1' )) {
     speaker = socket.id;
     if (queue[0] === socket.id) {
       queue.shift();
