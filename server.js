@@ -27,7 +27,7 @@ const authorizedUsers = {
 };
 
 const MAX_USERS = 20;
-let users = new Map(); // {socket.id: {name, image, joinTime, readyToSpeak}}
+let users = new Map(); // {socket.id: {name, image, joinTime}}
 let currentSpeaker = null;
 
 function getTime() {
@@ -36,12 +36,7 @@ function getTime() {
 
 function broadcastRoomUpdate() {
   const roomData = {
-    users: Array.from(users.entries()).map(([id, data]) => ({
-      id,
-      name: data.name,
-      image: data.image,
-      isSpeaking: id === currentSpeaker
-    })),
+    users: Array.from(users.entries()).map(([id, data]) => [id, data.name, data.image, id === currentSpeaker]),
     currentSpeaker,
     timestamp: new Date().toISOString()
   };
@@ -67,6 +62,7 @@ io.on("connection", (socket) => {
         readyToSpeak: false
       });
 
+      // بعد از 7 ثانیه کاربر آماده صحبت می‌شود
       setTimeout(() => {
         const user = users.get(socket.id);
         if (user) {
@@ -94,18 +90,18 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("request-to-speak", () => {
+  socket.on("start-speaking", () => {
     const user = users.get(socket.id);
     if (!user || !user.readyToSpeak) return;
 
-    if (!currentSpeaker) {
-      currentSpeaker = socket.id;
-      broadcastRoomUpdate();
-      console.log(`[${getTime()}] کاربر ${user.name} شروع به صحبت کرد`);
-      socket.emit("speaking-approved");
-    } else {
-      socket.emit("speaking-denied");
+    // اگر کسی در حال صحبت است، صحبت او را قطع می‌کنیم
+    if (currentSpeaker) {
+      io.to(currentSpeaker).emit("stop-speaking");
     }
+
+    currentSpeaker = socket.id;
+    broadcastRoomUpdate();
+    console.log(`[${getTime()}] کاربر ${user.name} شروع به صحبت کرد`);
   });
 
   socket.on("stop-speaking", () => {
@@ -116,9 +112,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("signal", ({ to, from, signal }) => {
+  socket.on("signal", ({ to, from, data }) => {
     if (users.has(to) && users.has(from)) {
-      socket.to(to).emit("signal", { from, signal });
+      socket.to(to).emit("signal", { from, data });
     }
   });
 
