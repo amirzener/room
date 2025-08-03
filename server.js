@@ -63,14 +63,7 @@ io.on("connection", (socket) => {
       });
 
       // بعد از 7 ثانیه کاربر آماده صحبت می‌شود
-      setTimeout(() => {
-        const user = users.get(socket.id);
-        if (user) {
-          user.readyToSpeak = true;
-          socket.emit("ready-to-speak");
-          broadcastRoomUpdate();
-        }
-      }, 7000);
+      
 
       const otherUsers = Array.from(users.entries())
   .filter(([id]) => id !== socket.id)
