@@ -27,7 +27,7 @@ const authorizedUsers = {
 };
 
 const MAX_USERS = 20;
-let users = new Map(); // socket.id -> { name, image, readyToSpeak }
+let users = new Map(); // {socket.id: {name, image, joinTime}}
 let currentSpeaker = null;
 
 function getTime() {
@@ -36,9 +36,7 @@ function getTime() {
 
 function broadcastRoomUpdate() {
   const roomData = {
-    users: Array.from(users.entries()).map(([id, data]) => [
-      id, data.name, data.image, id === currentSpeaker
-    ]),
+    users: Array.from(users.entries()).map(([id, data]) => [id, data.name, data.image, id === currentSpeaker]),
     currentSpeaker,
     timestamp: new Date().toISOString()
   };
@@ -46,7 +44,7 @@ function broadcastRoomUpdate() {
 }
 
 io.on("connection", (socket) => {
-  console.log(`[${getTime()}] اتصال جدید: ${socket.id}`);
+  console.log(`[${getTime()}] اتصال جدید:`, socket.id);
 
   if (users.size >= MAX_USERS) {
     socket.emit("room-full");
@@ -56,63 +54,67 @@ io.on("connection", (socket) => {
 
   socket.on("authenticate", (code) => {
     if (authorizedUsers[code]) {
-      const { name, image } = authorizedUsers[code];
-
+      const userData = authorizedUsers[code];
       users.set(socket.id, {
-        name,
-        image,
-        readyToSpeak: true // به‌صورت فوری فعال شود
+        name: userData.name,
+        image: userData.image,
+        joinTime: new Date(),
+        readyToSpeak: false
       });
+
+      // بعد از 7 ثانیه کاربر آماده صحبت می‌شود
+      setTimeout(() => {
+        const user = users.get(socket.id);
+        if (user) {
+          user.readyToSpeak = true;
+          socket.emit("ready-to-speak");
+          broadcastRoomUpdate();
+        }
+      }, 7000);
 
       const otherUsers = Array.from(users.keys()).filter(id => id !== socket.id);
-      socket.emit("authenticated", {
-        name,
-        image,
-        otherUsers
+      socket.emit("authenticated", { 
+        name: userData.name, 
+        image: userData.image,
+        otherUsers 
       });
-
-      socket.emit("ready-to-speak");
+      
       socket.broadcast.emit("user-joined", socket.id);
       broadcastRoomUpdate();
-
-      console.log(`[${getTime()}] کاربر "${name}" وارد شد (${socket.id})`);
+      
+      console.log(`[${getTime()}] کاربر "${userData.name}" با کد ${code} وارد شد`);
     } else {
       socket.emit("authentication-failed");
       socket.disconnect(true);
-      console.log(`[${getTime()}] تلاش ناموفق با کد: ${code}`);
+      console.log(`[${getTime()}] کد نامعتبر: ${code}`);
     }
   });
 
   socket.on("start-speaking", () => {
     const user = users.get(socket.id);
-    if (!user) return;
+    if (!user || !user.readyToSpeak) return;
 
-    if (!user.readyToSpeak) {
-      console.log(`[${getTime()}] ${socket.id} هنوز آماده صحبت نیست`);
-      return;
+    // اگر کسی در حال صحبت است، صحبت او را قطع می‌کنیم
+    if (currentSpeaker) {
+      io.to(currentSpeaker).emit("stop-speaking");
     }
 
-    if (currentSpeaker !== socket.id) {
-      currentSpeaker = socket.id;
-      console.log(`[${getTime()}] ${user.name} شروع به صحبت کرد`);
-      broadcastRoomUpdate();
-    }
+    currentSpeaker = socket.id;
+    broadcastRoomUpdate();
+    console.log(`[${getTime()}] کاربر ${user.name} شروع به صحبت کرد`);
   });
 
   socket.on("stop-speaking", () => {
-    const user = users.get(socket.id);
     if (currentSpeaker === socket.id) {
       currentSpeaker = null;
-      console.log(`[${getTime()}] ${user?.name || "?"} صحبت را پایان داد`);
       broadcastRoomUpdate();
+      console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} صحبت را پایان داد`);
     }
   });
 
   socket.on("signal", ({ to, from, data }) => {
     if (users.has(to) && users.has(from)) {
-      if (io.sockets.sockets.get(to)?.connected) {
-        socket.to(to).emit("signal", { from, data });
-      }
+      socket.to(to).emit("signal", { from, data });
     }
   });
 
@@ -121,20 +123,19 @@ io.on("connection", (socket) => {
     if (!user) return;
 
     users.delete(socket.id);
-
+    
     if (currentSpeaker === socket.id) {
       currentSpeaker = null;
-      console.log(`[${getTime()}] ${user.name} در حال صحبت بود و قطع شد`);
+      console.log(`[${getTime()}] کاربر ${user.name} در حال صحبت بود و قطع شد`);
     }
-
+    
     socket.broadcast.emit("user-left", socket.id);
     broadcastRoomUpdate();
-
-    console.log(`[${getTime()}] ${user.name} خارج شد (${socket.id})`);
+    console.log(`[${getTime()}] کاربر ${user.name} از اتاق خارج شد`);
   });
 });
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`[${getTime()}] سرور در حال اجرا روی پورت ${PORT}`);
+  console.log(`[${getTime()}] سرور روی پورت ${PORT} اجرا شد`);
 });
