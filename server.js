@@ -14,20 +14,19 @@ const io = socketIo(server, {
   }
 });
 
-// اطلاعات کاربران مجاز
-const authorizedUsers = {
-  "1": { name: "امیر الفا", image: "https://jzlabel.com/wp-content/uploads/2021/04/love-emoji-01.jpg" },
-  "2": { name: "امیر تربت", image: "https://jzlabel.com/wp-content/uploads/2021/04/father-emoji-01.jpg" },
-  "3": { name: "نسترن", image: "https://static0.khabarfoori.com/servev2/N2VlNjEjvrMH/5Uwvb7W7Zm0,/file.jpg" },
-  "4": { name: "میلاد", image: "https://jzlabel.com/wp-content/uploads/2021/04/vampire-emoji-01.jpg" },
-  "5": { name: "علی", image: "https://jzlabel.com/wp-content/uploads/2021/04/vamp-emoji-01.jpg" },
-  "6": { name: "حامد", image: "https://jzlabel.com/wp-content/uploads/2021/04/boy-emoji-01.jpg" },
-  "7": { name: "امید", image: "https://jzlabel.com/wp-content/uploads/2021/04/dance-emoji-01.jpg" },
-  "8": { name: "شیوا", image: "https://jzlabel.com/wp-content/uploads/2021/04/happy-emoji-01.jpg" }
+const MAX_USERS = 20;
+const ACCESS_CODES = {
+  '1': { name: 'امیر الفا', image: 'https://jzlabel.com/wp-content/uploads/2021/04/love-emoji-01.jpg' },
+  '2': { name: 'امیر تربت', image: 'https://jzlabel.com/wp-content/uploads/2021/04/father-emoji-01.jpg' },
+  '3': { name: 'نسترن', image: 'https://static0.khabarfoori.com/servev2/N2VlNjEjvrMH/5Uwvb7W7Zm0,/file.jpg' },
+  '4': { name: 'میلاد', image: 'https://jzlabel.com/wp-content/uploads/2021/04/vampire-emoji-01.jpg' },
+  '5': { name: 'علی', image: 'https://jzlabel.com/wp-content/uploads/2021/04/vamp-emoji-01.jpg' },
+  '6': { name: 'حامد', image: 'https://jzlabel.com/wp-content/uploads/2021/04/boy-emoji-01.jpg' },
+  '7': { name: 'امید', image: 'https://jzlabel.com/wp-content/uploads/2021/04/dance-emoji-01.jpg' },
+  '8': { name: 'شیوا', image: 'https://jzlabel.com/wp-content/uploads/2021/04/happy-emoji-01.jpg' }
 };
 
-const MAX_USERS = 20;
-let users = new Map(); // {socket.id: {name, image, joinTime}}
+let users = new Map(); // {socket.id: {name, image, joinTime, isSpeaking}}
 let currentSpeaker = null;
 
 function getTime() {
@@ -36,7 +35,7 @@ function getTime() {
 
 function broadcastRoomUpdate() {
   const roomData = {
-    users: Array.from(users.entries()).map(([id, data]) => [id, data.name, data.image, id === currentSpeaker]),
+    users: Array.from(users.entries()).map(([id, data]) => [id, data.name, data.image, data.isSpeaking]),
     currentSpeaker,
     timestamp: new Date().toISOString()
   };
@@ -44,7 +43,7 @@ function broadcastRoomUpdate() {
 }
 
 io.on("connection", (socket) => {
-  console.log(`[${getTime()}] اتصال جدید:`, socket.id);
+  console.log(`[${getTime()}] کاربر جدید متصل شد:`, socket.id);
 
   if (users.size >= MAX_USERS) {
     socket.emit("room-full");
@@ -52,68 +51,57 @@ io.on("connection", (socket) => {
     return;
   }
 
-  socket.on("authenticate", (code) => {
-    if (authorizedUsers[code]) {
-      const userData = authorizedUsers[code];
-      users.set(socket.id, {
-        name: userData.name,
-        image: userData.image,
-        joinTime: new Date(),
-        readyToSpeak: true
-      });
-
-      // بعد از 7 ثانیه کاربر آماده صحبت می‌شود
-      
-
-      const otherUsers = Array.from(users.entries())
-  .filter(([id]) => id !== socket.id)
-  .map(([id, u]) => ({ id, name: u.name, image: u.image }));
-
-socket.emit("authenticated", { 
-  name: userData.name, 
-  image: userData.image,
-  otherUsers
-});
-
-// به همه کاربران اطلاع بده که یک کاربر جدید آمده و مشخصات او را هم بفرست
-socket.broadcast.emit("user-joined", {
-  id: socket.id,
-  name: userData.name,
-  image: userData.image
-});
-
-      
-      
-      broadcastRoomUpdate();
-      
-      console.log(`[${getTime()}] کاربر "${userData.name}" با کد ${code} وارد شد`);
-    } else {
-      socket.emit("authentication-failed");
+  socket.on("join-with-code", (code) => {
+    if (!ACCESS_CODES[code]) {
+      socket.emit("invalid-code");
       socket.disconnect(true);
-      console.log(`[${getTime()}] کد نامعتبر: ${code}`);
-    }
-  });
-
-  socket.on("start-speaking", () => {
-    const user = users.get(socket.id);
-    if (!user || !user.readyToSpeak) return;
-
-    // اگر کسی در حال صحبت است، صحبت او را قطع می‌کنیم
-    if (currentSpeaker) {
-      io.to(currentSpeaker).emit("stop-speaking");
+      return;
     }
 
-    currentSpeaker = socket.id;
+    const userData = {
+      name: ACCESS_CODES[code].name,
+      image: ACCESS_CODES[code].image,
+      joinTime: new Date(),
+      isSpeaking: false
+    };
+
+    users.set(socket.id, userData);
+
+    console.log(`[${getTime()}] کاربر "${userData.name}" با کد ${code} به اتاق پیوست`);
+
+    const otherUsers = Array.from(users.keys()).filter(id => id !== socket.id);
+    socket.emit("all-users", otherUsers);
+    socket.broadcast.emit("user-joined", socket.id);
+
     broadcastRoomUpdate();
-    console.log(`[${getTime()}] کاربر ${user.name} شروع به صحبت کرد`);
   });
 
-  socket.on("stop-speaking", () => {
+  socket.on("toggle-speak", () => {
+    const userData = users.get(socket.id);
+    if (!userData) return;
+
     if (currentSpeaker === socket.id) {
+      // کاربر در حال صحبت است و می‌خواهد قطع کند
       currentSpeaker = null;
-      broadcastRoomUpdate();
-      console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} صحبت را پایان داد`);
+      userData.isSpeaking = false;
+      socket.emit("speak-status", false);
+    } else {
+      // کاربر می‌خواهد صحبت کند
+      if (currentSpeaker) {
+        // اگر کسی در حال صحبت است، او را قطع می‌کنیم
+        const prevSpeakerData = users.get(currentSpeaker);
+        if (prevSpeakerData) {
+          prevSpeakerData.isSpeaking = false;
+          io.to(currentSpeaker).emit("speak-status", false);
+        }
+      }
+      currentSpeaker = socket.id;
+      userData.isSpeaking = true;
+      socket.emit("speak-status", true);
     }
+
+    broadcastRoomUpdate();
+    console.log(`[${getTime()}] کاربر ${userData.name} وضعیت صحبت را تغییر داد به: ${userData.isSpeaking}`);
   });
 
   socket.on("signal", ({ to, from, data }) => {
@@ -123,19 +111,20 @@ socket.broadcast.emit("user-joined", {
   });
 
   socket.on("disconnect", () => {
-    const user = users.get(socket.id);
-    if (!user) return;
+    const userData = users.get(socket.id);
+    if (!userData) return;
 
+    const userName = userData.name;
     users.delete(socket.id);
     
     if (currentSpeaker === socket.id) {
       currentSpeaker = null;
-      console.log(`[${getTime()}] کاربر ${user.name} در حال صحبت بود و قطع شد`);
+      console.log(`[${getTime()}] کاربر ${userName} در حال صحبت بود و قطع شد`);
     }
     
     socket.broadcast.emit("user-left", socket.id);
     broadcastRoomUpdate();
-    console.log(`[${getTime()}] کاربر ${user.name} از اتاق خارج شد`);
+    console.log(`[${getTime()}] کاربر ${userName} از اتاق خارج شد`);
   });
 });
 
