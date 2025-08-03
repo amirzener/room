@@ -93,13 +93,8 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     if (!user || !user.readyToSpeak) return;
 
-    if (currentSpeaker && currentSpeaker !== socket.id) {
-      io.to(currentSpeaker).emit("force-stop-speaking");
-    }
-
     currentSpeaker = socket.id;
     broadcastRoomUpdate();
-    io.emit("speaker-changed", currentSpeaker);
     console.log(`[${getTime()}] کاربر ${user.name} شروع به صحبت کرد`);
   });
 
@@ -107,7 +102,6 @@ io.on("connection", (socket) => {
     if (currentSpeaker === socket.id) {
       currentSpeaker = null;
       broadcastRoomUpdate();
-      io.emit("speaker-changed", null);
       console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} صحبت را پایان داد`);
     }
   });
@@ -126,8 +120,6 @@ io.on("connection", (socket) => {
     
     if (currentSpeaker === socket.id) {
       currentSpeaker = null;
-      io.emit("speaker-changed", null);
-      broadcastRoomUpdate();
       console.log(`[${getTime()}] کاربر ${user.name} در حال صحبت بود و قطع شد`);
     }
     
