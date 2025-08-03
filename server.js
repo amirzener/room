@@ -72,14 +72,25 @@ io.on("connection", (socket) => {
         }
       }, 7000);
 
-      const otherUsers = Array.from(users.keys()).filter(id => id !== socket.id);
-      socket.emit("authenticated", { 
-        name: userData.name, 
-        image: userData.image,
-        otherUsers 
-      });
+      const otherUsers = Array.from(users.entries())
+  .filter(([id]) => id !== socket.id)
+  .map(([id, u]) => ({ id, name: u.name, image: u.image }));
+
+socket.emit("authenticated", { 
+  name: userData.name, 
+  image: userData.image,
+  otherUsers
+});
+
+// به همه کاربران اطلاع بده که یک کاربر جدید آمده و مشخصات او را هم بفرست
+socket.broadcast.emit("user-joined", {
+  id: socket.id,
+  name: userData.name,
+  image: userData.image
+});
+
       
-      socket.broadcast.emit("user-joined", socket.id);
+      
       broadcastRoomUpdate();
       
       console.log(`[${getTime()}] کاربر "${userData.name}" با کد ${code} وارد شد`);
