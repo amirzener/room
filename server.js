@@ -27,7 +27,7 @@ const authorizedUsers = {
 };
 
 const MAX_USERS = 20;
-let users = new Map(); // {socket.id: {name, image, joinTime}}
+let users = new Map();
 let currentSpeaker = null;
 
 function getTime() {
@@ -62,7 +62,6 @@ io.on("connection", (socket) => {
         readyToSpeak: false
       });
 
-      // بعد از 7 ثانیه کاربر آماده صحبت می‌شود
       setTimeout(() => {
         const user = users.get(socket.id);
         if (user) {
@@ -94,13 +93,13 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     if (!user || !user.readyToSpeak) return;
 
-    // اگر کسی در حال صحبت است، صحبت او را قطع می‌کنیم
-    if (currentSpeaker) {
-      io.to(currentSpeaker).emit("stop-speaking");
+    if (currentSpeaker && currentSpeaker !== socket.id) {
+      io.to(currentSpeaker).emit("force-stop-speaking");
     }
 
     currentSpeaker = socket.id;
     broadcastRoomUpdate();
+    io.emit("speaker-changed", currentSpeaker);
     console.log(`[${getTime()}] کاربر ${user.name} شروع به صحبت کرد`);
   });
 
@@ -108,6 +107,7 @@ io.on("connection", (socket) => {
     if (currentSpeaker === socket.id) {
       currentSpeaker = null;
       broadcastRoomUpdate();
+      io.emit("speaker-changed", null);
       console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} صحبت را پایان داد`);
     }
   });
@@ -126,6 +126,8 @@ io.on("connection", (socket) => {
     
     if (currentSpeaker === socket.id) {
       currentSpeaker = null;
+      io.emit("speaker-changed", null);
+      broadcastRoomUpdate();
       console.log(`[${getTime()}] کاربر ${user.name} در حال صحبت بود و قطع شد`);
     }
     
