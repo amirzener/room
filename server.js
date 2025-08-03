@@ -59,7 +59,7 @@ io.on("connection", (socket) => {
         name: userData.name,
         image: userData.image,
         joinTime: new Date(),
-        readyToSpeak: false
+        readyToSpeak: true
       });
 
       // بعد از 7 ثانیه کاربر آماده صحبت می‌شود
