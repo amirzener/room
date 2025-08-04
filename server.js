@@ -15,8 +15,8 @@ const io = socketIo(server, {
 });
 
 const MAX_USERS = 20;
-let users = new Map(); // {socket.id: {name, avatar, joinTime}}
-let speaker = null;
+let users = new Map();
+let speakers = new Set();
 
 function getTime() {
   return new Date().toLocaleTimeString('fa-IR');
@@ -25,7 +25,7 @@ function getTime() {
 function broadcastRoomUpdate() {
   const roomData = {
     users: Array.from(users.entries()).map(([id, data]) => [id, data.name, data.avatar]),
-    speaker,
+    speakers: Array.from(speakers),
     timestamp: new Date().toISOString()
   };
   io.emit("room-update", roomData);
@@ -61,33 +61,15 @@ io.on("connection", (socket) => {
   });
 
   socket.on("start-speaking", () => {
-    // اگر کسی در حال صحبت است، ابتدا صحبت او را قطع کنید
-    if (speaker) {
-      io.to(speaker).emit("force-stop-speaking");
-    }
-    
-    speaker = socket.id;
+    speakers.add(socket.id);
     broadcastRoomUpdate();
     console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} شروع به صحبت کرد`);
-    
-    // به کاربر جدید اطلاع دهید که می‌تواند صحبت کند
-    io.to(socket.id).emit("you-can-speak");
   });
 
   socket.on("stop-speaking", () => {
-    if (speaker === socket.id) {
-      speaker = null;
-      broadcastRoomUpdate();
-      console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} صحبت را پایان داد`);
-    }
-  });
-
-  socket.on("force-stop-speaking", () => {
-    if (speaker) {
-      io.to(speaker).emit("force-stop-speaking");
-      speaker = null;
-      broadcastRoomUpdate();
-    }
+    speakers.delete(socket.id);
+    broadcastRoomUpdate();
+    console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} صحبت را پایان داد`);
   });
 
   socket.on("signal", ({ to, from, data }) => {
@@ -102,11 +84,7 @@ io.on("connection", (socket) => {
 
     const userName = userData.name;
     users.delete(socket.id);
-    
-    if (speaker === socket.id) {
-      speaker = null;
-      console.log(`[${getTime()}] کاربر ${userName} در حال صحبت بود و قطع شد`);
-    }
+    speakers.delete(socket.id);
     
     socket.broadcast.emit("user-left", socket.id);
     broadcastRoomUpdate();
