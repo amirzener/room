@@ -61,15 +61,27 @@ io.on("connection", (socket) => {
   });
 
   socket.on("start-speaking", () => {
+    const user = users.get(socket.id);
+    if (!user) {
+      console.warn(`[${getTime()}] خطا: کاربر برای start-speaking یافت نشد (${socket.id})`);
+      return;
+    }
+
     speakers.add(socket.id);
     broadcastRoomUpdate();
-    console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} شروع به صحبت کرد`);
+    console.log(`[${getTime()}] کاربر ${user.name} شروع به صحبت کرد`);
   });
 
   socket.on("stop-speaking", () => {
+    const user = users.get(socket.id);
+    if (!user) {
+      console.warn(`[${getTime()}] خطا: کاربر برای stop-speaking یافت نشد (${socket.id})`);
+      return;
+    }
+
     speakers.delete(socket.id);
     broadcastRoomUpdate();
-    console.log(`[${getTime()}] کاربر ${users.get(socket.id).name} صحبت را پایان داد`);
+    console.log(`[${getTime()}] کاربر ${user.name} صحبت را پایان داد`);
   });
 
   socket.on("signal", ({ to, from, data }) => {
